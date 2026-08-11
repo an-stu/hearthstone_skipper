@@ -1,5 +1,7 @@
 ## HearthStone-Skipper 炉石传说 酒馆战旗 MacOS 一键拔线工具
 
+> 本项目修改自 [z2z63/hearthstone_skipper](https://github.com/z2z63/hearthstone_skipper)。在原项目基础上增加了无需 Clash 的 macOS 原生 PF 后端、对局连接精确识别、结构化日志与重连稳定性修复。
+
 - 通过点击系统栏快速拔线，帮助您快速跳过战斗动画，获取更多操作时间
 - 可选择 Clash/Mihomo 后端，或完全不依赖 Clash 的 macOS 原生 PF 后端
 - 自由开源，更加安全
