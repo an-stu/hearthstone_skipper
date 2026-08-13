@@ -8,8 +8,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstdio>
+#include <fcntl.h>
+#include <poll.h>
 #include <thread>
+#include <unistd.h>
 
 #ifdef Q_OS_MACOS
 #include <Security/Authorization.h>
@@ -87,6 +91,53 @@ void logConnectionScan(const std::shared_ptr<spdlog::logger> &logger, const quin
                        skipId, connections.size(), directTcp, knownGamePort, hearthstoneOwned, missingProcess);
 }
 
+bool writeAll(const int fd, const QByteArray &data) {
+    qsizetype written = 0;
+    while (written < data.size()) {
+        const ssize_t count = ::write(fd, data.constData() + written, static_cast<size_t>(data.size() - written));
+        if (count < 0 && errno == EINTR) {
+            continue;
+        }
+        if (count <= 0) {
+            return false;
+        }
+        written += count;
+    }
+    return true;
+}
+
+QByteArray readLineWithTimeout(const int fd, const int timeoutMs) {
+    QByteArray line;
+    QElapsedTimer timer;
+    timer.start();
+    while (line.size() < 4096) {
+        const int remaining = timeoutMs - static_cast<int>(timer.elapsed());
+        if (remaining <= 0) {
+            return {};
+        }
+        pollfd descriptor{.fd = fd, .events = POLLIN, .revents = 0};
+        int ready = 0;
+        do {
+            ready = poll(&descriptor, 1, remaining);
+        } while (ready < 0 && errno == EINTR);
+        if (ready <= 0 || (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+            return {};
+        }
+        char character = 0;
+        const ssize_t count = ::read(fd, &character, 1);
+        if (count != 1) {
+            return {};
+        }
+        if (character == '\n') {
+            return line;
+        }
+        if (character != '\r') {
+            line.append(character);
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 Skipper::Skipper(ConfigAwareQEasy *qeasy, QObject *parent)
@@ -98,6 +149,12 @@ Skipper::Skipper(ConfigAwareQEasy *qeasy, QObject *parent)
 
 Skipper::~Skipper() {
 #ifdef Q_OS_MACOS
+    if (_nativeHelperPipe != nullptr) {
+        const int helperFd = fileno(_nativeHelperPipe);
+        writeAll(helperFd, QByteArrayLiteral("QUIT\n"));
+        std::fclose(_nativeHelperPipe);
+        _nativeHelperPipe = nullptr;
+    }
     if (_nativeAuthorization != nullptr) {
         AuthorizationFree(static_cast<AuthorizationRef>(_nativeAuthorization), kAuthorizationFlagDefaults);
         _nativeAuthorization = nullptr;
@@ -355,69 +412,97 @@ void Skipper::nativeDisconnect() {
                        "skip_id={} native selected process={} source={}:{} destination={}:{} helper={}", _skipId,
                        socket->process.toStdString(), socket->sourceIp.toStdString(), socket->sourcePort,
                        socket->destinationIp.toStdString(), socket->destinationPort, helperPath.toStdString());
-    AuthorizationRef authorization = static_cast<AuthorizationRef>(_nativeAuthorization);
-    if (authorization == nullptr) {
-        const OSStatus createStatus = AuthorizationCreate(nullptr, kAuthorizationEmptyEnvironment,
-                                                          kAuthorizationFlagDefaults, &authorization);
-        if (createStatus != errAuthorizationSuccess) {
-            SPDLOG_LOGGER_ERROR(_logger, "skip_id={} AuthorizationCreate failed status={}", _skipId, createStatus);
+    bool helperStarted = false;
+    if (_nativeHelperPipe == nullptr) {
+        AuthorizationRef authorization = static_cast<AuthorizationRef>(_nativeAuthorization);
+        if (authorization == nullptr) {
+            const OSStatus createStatus = AuthorizationCreate(nullptr, kAuthorizationEmptyEnvironment,
+                                                              kAuthorizationFlagDefaults, &authorization);
+            if (createStatus != errAuthorizationSuccess) {
+                SPDLOG_LOGGER_ERROR(_logger, "skip_id={} AuthorizationCreate failed status={}", _skipId,
+                                    createStatus);
+                finishSkip(false);
+                return;
+            }
+            _nativeAuthorization = authorization;
+        }
+
+        AuthorizationItem executeItem{kAuthorizationRightExecute, 0, nullptr, 0};
+        AuthorizationRights rights{1, &executeItem};
+        const AuthorizationFlags flags = kAuthorizationFlagInteractionAllowed | kAuthorizationFlagExtendRights |
+                                         kAuthorizationFlagPreAuthorize;
+        const OSStatus rightsStatus = AuthorizationCopyRights(authorization, &rights, kAuthorizationEmptyEnvironment,
+                                                              flags, nullptr);
+        if (rightsStatus != errAuthorizationSuccess) {
+            SPDLOG_LOGGER_WARN(_logger, "skip_id={} native authorization denied status={}", _skipId, rightsStatus);
             finishSkip(false);
             return;
         }
-        _nativeAuthorization = authorization;
-    }
 
-    AuthorizationItem executeItem{kAuthorizationRightExecute, 0, nullptr, 0};
-    AuthorizationRights rights{1, &executeItem};
-    const AuthorizationFlags flags = kAuthorizationFlagInteractionAllowed | kAuthorizationFlagExtendRights |
-                                     kAuthorizationFlagPreAuthorize;
-    const OSStatus rightsStatus = AuthorizationCopyRights(authorization, &rights, kAuthorizationEmptyEnvironment,
-                                                          flags, nullptr);
-    if (rightsStatus != errAuthorizationSuccess) {
-        SPDLOG_LOGGER_WARN(_logger, "skip_id={} native authorization denied status={}", _skipId, rightsStatus);
-        finishSkip(false);
-        return;
-    }
-
-    const QByteArray helperUtf8 = QFile::encodeName(helperPath);
-    const QByteArray addressUtf8 = gameServer->ip.toUtf8();
-    const QByteArray portUtf8 = QByteArray::number(gameServer->port);
-    QByteArray durationUtf8("1500");
-    std::array<char *, 5> arguments{
-        const_cast<char *>("disconnect"), const_cast<char *>(addressUtf8.constData()),
-        const_cast<char *>(portUtf8.constData()), durationUtf8.data(), nullptr,
-    };
-    FILE *communicationsPipe = nullptr;
+        const QByteArray helperUtf8 = QFile::encodeName(helperPath);
+        std::array<char *, 2> arguments{const_cast<char *>("serve"), nullptr};
+        FILE *communicationsPipe = nullptr;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    const OSStatus executeStatus = AuthorizationExecuteWithPrivileges(
-        authorization, helperUtf8.constData(), kAuthorizationFlagDefaults, arguments.data(), &communicationsPipe);
+        const OSStatus executeStatus = AuthorizationExecuteWithPrivileges(
+            authorization, helperUtf8.constData(), kAuthorizationFlagDefaults, arguments.data(), &communicationsPipe);
 #pragma clang diagnostic pop
-    if (executeStatus != errAuthorizationSuccess || communicationsPipe == nullptr) {
-        SPDLOG_LOGGER_ERROR(_logger, "skip_id={} native helper launch failed status={}", _skipId, executeStatus);
-        finishSkip(false);
-        return;
+        if (executeStatus != errAuthorizationSuccess || communicationsPipe == nullptr) {
+            SPDLOG_LOGGER_ERROR(_logger, "skip_id={} native helper launch failed status={}", _skipId, executeStatus);
+            finishSkip(false);
+            return;
+        }
+        _nativeHelperPipe = communicationsPipe;
+        const int helperPipeFd = fileno(_nativeHelperPipe);
+        if (fcntl(helperPipeFd, F_SETNOSIGPIPE, 1) != 0) {
+            SPDLOG_LOGGER_WARN(_logger, "skip_id={} unable to suppress native service SIGPIPE errno={}", _skipId,
+                               errno);
+        }
+        helperStarted = true;
+        SPDLOG_LOGGER_INFO(_logger, "skip_id={} native service launched; authorization will be reused until exit",
+                           _skipId);
     }
 
     const quint64 operationSkipId = _skipId;
+    const int helperFd = fileno(_nativeHelperPipe);
+    const QByteArray command = "DISCONNECT " + socket->sourceIp.toUtf8() + ' ' +
+                               QByteArray::number(socket->sourcePort) + ' ' + socket->destinationIp.toUtf8() + ' ' +
+                               QByteArray::number(socket->destinationPort) + " 1500\n";
     QPointer<Skipper> guard(this);
-    std::thread([guard, communicationsPipe, operationSkipId] {
+    std::thread([guard, helperFd, command, operationSkipId, helperStarted] {
         QByteArray output;
-        std::array<char, 1024> buffer{};
-        size_t count = 0;
-        while ((count = std::fread(buffer.data(), 1, buffer.size(), communicationsPipe)) > 0) {
-            output.append(buffer.data(), static_cast<qsizetype>(count));
+        bool serviceAlive = true;
+        if (helperStarted) {
+            const QByteArray ready = readLineWithTimeout(helperFd, 5000);
+            serviceAlive = ready.startsWith("READY ");
+            if (!serviceAlive) {
+                output = "native service did not become ready";
+            }
         }
-        std::fclose(communicationsPipe);
+        if (serviceAlive && !writeAll(helperFd, command)) {
+            serviceAlive = false;
+            output = "native service request write failed";
+        }
+        if (serviceAlive) {
+            output = readLineWithTimeout(helperFd, 8000);
+            serviceAlive = !output.isEmpty();
+            if (!serviceAlive) {
+                output = "native service response timed out";
+            }
+        }
         QMetaObject::invokeMethod(
             guard.data(),
-            [guard, output, operationSkipId] {
+            [guard, output, operationSkipId, serviceAlive] {
                 if (guard.isNull()) {
                     return;
                 }
-                const bool success = output.contains("native disconnect completed");
-                SPDLOG_LOGGER_INFO(guard->_logger, "skip_id={} native helper finish success={} output={}",
-                                   operationSkipId, success, output.toStdString());
+                const bool success = output.startsWith("OK native disconnect completed");
+                SPDLOG_LOGGER_INFO(guard->_logger, "skip_id={} native service finish success={} alive={} output={}",
+                                   operationSkipId, success, serviceAlive, output.toStdString());
+                if (!serviceAlive && guard->_nativeHelperPipe != nullptr) {
+                    std::fclose(guard->_nativeHelperPipe);
+                    guard->_nativeHelperPipe = nullptr;
+                }
                 if (guard->_busy && guard->_skipId == operationSkipId) {
                     guard->finishSkip(success);
                 }

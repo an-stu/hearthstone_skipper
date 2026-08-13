@@ -3,6 +3,7 @@
 #include "spdlog/spdlog.h"
 #include <QElapsedTimer>
 #include <QObject>
+#include <cstdio>
 #include <string>
 
 class Skipper : public QObject {
@@ -38,4 +39,5 @@ class Skipper : public QObject {
     quint64 _skipId = 0;
     QElapsedTimer _skipTimer;
     const void *_nativeAuthorization = nullptr;
+    FILE *_nativeHelperPipe = nullptr;
 };

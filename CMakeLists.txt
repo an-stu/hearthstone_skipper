@@ -196,7 +196,10 @@ if (SKIPPER_BUILD_TESTS)
         target_include_directories(local_connection_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
         target_link_libraries(local_connection_probe PRIVATE Qt6::Core)
         add_test(NAME native_helper_rejects_invalid
-                 COMMAND $<TARGET_FILE:skipper_native_helper> disconnect invalid 1119 1500)
+                 COMMAND $<TARGET_FILE:skipper_native_helper> disconnect invalid 50000 47.97.62.165 1119 1500)
         set_tests_properties(native_helper_rejects_invalid PROPERTIES WILL_FAIL TRUE)
+        add_test(NAME native_helper_service_requires_privilege
+                 COMMAND $<TARGET_FILE:skipper_native_helper> serve)
+        set_tests_properties(native_helper_service_requires_privilege PROPERTIES WILL_FAIL TRUE)
     endif ()
 endif ()

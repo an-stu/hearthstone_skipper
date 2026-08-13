@@ -10,7 +10,7 @@
 
 - 在 release 中下载 app，解压移动到 Application 并打开
 - 在设置的“拔线后端”中选择一种方式：
-  - `macOS 原生 PF（无需 Clash）`：先关闭 Clash/VPN 的 TUN；每次启动通常只需按系统提示授权一次；
+  - `macOS 原生 PF（无需 Clash）`：先关闭 Clash/VPN 的 TUN；首次使用时按系统提示授权，之后在 Skipper 退出前复用同一个受限特权服务；
   - Clash TCP/IP 或 UNIX 套接字：需要核心接管炉石流量，并配置控制器。
 - 使用 Clash 后端时，skipper 需要获取 clash 核心的`external_controller`和`secret`，并且需要 clash 核心接管炉石传说客户端的流量。
   skipper 会尝试自动推断`external_controller`和`secret`，如果无法推断，请手动填写
@@ -48,7 +48,7 @@ macOS 已移除 ALTQ，但 PF 的过滤与连接状态控制仍然存在。真�
 本项目使用了一个独特的思路，通过external controller与 clash 核心通信，在 clash 核心内终止炉石传说客户端连接，因此不需要
 root 权限，不修改网络配置，系统影响小
 
-macOS 原生后端通过炉石日志与 `libproc` 双重确认真实对局连接，再由受限辅助程序在独立 PF anchor 中短暂加载精确规则并清除对应状态；完成或失败后都会撤销规则。它不依赖 Clash，但需要 macOS 管理员授权。详细设计和边界见 [非 Clash 原生拔线方案](docs/native-disconnect-design.md)。
+macOS 原生后端通过炉石日志与 `libproc` 双重确认真实对局连接，再由受限辅助程序在独立 PF anchor 中短暂加载精确四元组规则并清除对应状态；完成或失败后都会撤销规则。首次授权启动的辅助程序只接受严格校验的拔线指令，并在 Skipper 退出时结束，因此同一 Skipper 进程内不会因系统授权缓存超时而反复询问密码。它不依赖 Clash，但首次使用需要 macOS 管理员授权。详细设计和边界见 [非 Clash 原生拔线方案](docs/native-disconnect-design.md)。
 
 同时，这个思路也适用于 windows 端的炉石传说客户端。虽然 windows 端已有广泛使用的 HDT炉石团子
 插件，但需要管理员权限，而且由开源转为闭源，严重违反开源精神

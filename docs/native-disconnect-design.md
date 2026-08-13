@@ -46,7 +46,7 @@ macOS 的 `pfctl -k` 只能按地址/网段清 state，不能同时按进程和�
 
 ## 当前测试实现与正式发布差异
 
-当前测试版在 skipper 进程内保留 macOS Authorization Services 授权并按需运行受限 helper，不安装常驻 root 服务。每次启动通常只需授权一次。helper 只接受合法 IP、端口 1119/3724 和 0.5–3 秒阻断时长，且固定操作自己的 PF anchor。检测到 Clash/VPN 的合成 TUN 地址时会拒绝执行，避免把未生效操作误报为成功。
+当前测试版首次使用时通过 macOS Authorization Services 启动受限 helper，不安装跨应用启动常驻的 root 服务。helper 通过仅限当前 Skipper 进程持有的双向管道接受严格校验的 `DISCONNECT <源 IP> <源端口> <目标 IP> <目标端口> <最长毫秒数>` 指令，并在 Skipper 退出或管道断开时结束。这样可避免系统短期授权缓存过期后重复询问密码。helper 只接受合法且同地址族的四元组、目标端口 1119/3724 和 0.5–3 秒最长等待时间，且固定操作自己的 PF anchor。检测到 Clash/VPN 的合成 TUN 地址时会拒绝执行，避免把未生效操作误报为成功。
 
 正式发布仍应使用固定 Team ID、Developer ID 签名、XPC/SMAppService helper、调用方 designated requirement 和完整公证链路，避免每次按需授权并支持安全升级。
 
