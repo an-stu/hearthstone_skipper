@@ -74,6 +74,7 @@
 - **一直显示正在重新连接**：先等待游戏自身完成重连，不要连续拔线；保存日志和异常时间后再重启游戏。
 - **每次都要求密码**：确认没有退出/重启 Skipper，并检查是否同时运行了多个 `skipper.app`。同一进程内 helper 正常存活时只需首次授权。
 - **游戏直接退出**：立即保存 Skipper 日志和炉石日志，并注明退出时间；Skipper 不会主动结束游戏进程。
+- **HSTracker 拔线后不再显示战棋模拟/面板信息**：HSTracker 3.6.2 可能在强制重连时重置当前对局，却无法重新建立 `playerEntity`，日志中会出现 `Player Entity could not be found` 和 `No input`。这是 HSTracker 当前对局状态失步，并非 `Power.log` 停止更新。可在重连完成后只退出并重开 HSTracker，让它重新读取当前日志；若仍未恢复，只能等待下一局。HSReplay 登录失效、Tier7 订阅或试用到期属于另一问题，需要在 HSTracker 中重新登录或检查账户权益。
 
 ## 界面截图
 
@@ -117,5 +118,6 @@ macOS 原生后端通过炉石日志与 `libproc` 双重确认真实对局连接
 2. 原生 PF 与 Clash/VPN TUN 不能同时使用。
 3. Clash 后端要求兼容 Clash API 的核心能够接管炉石传说客户端流量。
 4. 当前原生版本仍为实战测试版。正式分发仍需 Developer ID 签名、公证及基于 `SMAppService` 的 helper。
+5. HSTracker 3.6.2 可能无法从酒馆战棋中途强制重连完整恢复当前对局实体，导致本局模拟信息缺失；详见上面的故障排查。
 
 详细设计和安全边界见 [非 Clash 原生拔线方案](docs/native-disconnect-design.md)。
