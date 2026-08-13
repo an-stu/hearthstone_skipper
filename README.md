@@ -1,30 +1,88 @@
-## HearthStone-Skipper 炉石传说 酒馆战旗 MacOS 一键拔线工具
+# HearthStone-Skipper
+
+炉石传说酒馆战棋 macOS 一键拔线工具。战斗开始后断开当前对局连接，让客户端自动重连并跳过战斗动画。
 
 > 本项目修改自 [z2z63/hearthstone_skipper](https://github.com/z2z63/hearthstone_skipper)。在原项目基础上增加了无需 Clash 的 macOS 原生 PF 后端、对局连接精确识别、结构化日志与重连稳定性修复。
 
-- 通过点击系统栏快速拔线，帮助您快速跳过战斗动画，获取更多操作时间
-- 可选择 Clash/Mihomo 后端，或完全不依赖 Clash 的 macOS 原生 PF 后端
-- 自由开源，更加安全
+## 功能
 
-## 如何使用
+- `macOS 原生 PF（无需 Clash）`：不安装、不运行 Clash 也可以拔线。
+- `Clash TCP/IP / UNIX 套接字`：保留原有 Clash/Mihomo 使用方式。
+- 只选择炉石当前对局连接，避开 Battle.net 登录连接。
+- 日志记录每次点击、连接选择、helper 结果和耗时，方便定位偶发问题。
 
-- 在 release 中下载 app，解压移动到 Application 并打开
-- 在设置的“拔线后端”中选择一种方式：
-  - `macOS 原生 PF（无需 Clash）`：先关闭 Clash/VPN 的 TUN；首次使用时按系统提示授权，之后在 Skipper 退出前复用同一个受限特权服务；
-  - Clash TCP/IP 或 UNIX 套接字：需要核心接管炉石流量，并配置控制器。
-- 使用 Clash 后端时，skipper 需要获取 clash 核心的`external_controller`和`secret`，并且需要 clash 核心接管炉石传说客户端的流量。
-  skipper 会尝试自动推断`external_controller`和`secret`，如果无法推断，请手动填写
-- 开启 clash 的 tun 模式（或者 clash x pro 的增强模式），保证 clash 核心能够接管到炉石传说客户端的流量
-- 在 clash 配置文件的末尾添加`find-process-mode: always`，保证 clash 核心解析连接发起进程，帮助 skipper 找到炉石传说客户端与对局服务器的连接
+## 下载与安装
 
-<div style="display: flex;justify-content: space-around">
-  <img src="docs/img.png" alt="img">
-  <img src="docs/img_1.png" alt="img1" style="width: 100%">
-  <img src="docs/img_2.png" alt="img2" style="width: 8000px">
-  <img src="https://github.com/user-attachments/assets/df85a116-0dc7-4db1-a620-87e8d68f8483" style="width: 400px"/>
-  <img src="https://github.com/user-attachments/assets/d226bead-c2df-49f9-91db-d167c86ba0a9" style="width: 400px"/>
-  <img src="docs/img_3.png" alt="img3" style="width: 100px">
-  <img src="docs/img_4.png" alt="img4" style="width: 800px">
+1. 打开本仓库的 [Releases](https://github.com/an-stu/hearthstone_skipper/releases)，下载最新的 `macos-arm64.zip`。当前测试包仅支持 Apple Silicon（M1/M2/M3/M4 等）。
+2. 完全退出旧版 Skipper。解压 ZIP，将 `skipper.app` 拖入 `/Applications`；若系统询问是否替换，选择替换。
+3. 第一次打开时，如 macOS 阻止未公证应用，进入“系统设置 → 隐私与安全”，确认打开 Skipper。
+4. Skipper 启动后会出现在系统菜单栏，并自动打开设置窗口。
+
+升级时只保留 `/Applications/skipper.app` 即可，不要同时运行下载目录或构建目录中的副本。
+
+## 教程一：完全原生模式（推荐，无需 Clash）
+
+### 使用前设置
+
+1. 退出 Clash，或至少关闭 Clash/VPN 的 TUN/增强模式。原生模式检测到 `198.18.0.0/15` 等合成 TUN 地址时会拒绝执行，避免误报成功。
+2. 打开 Skipper 设置，在“拔线后端”选择 `macOS 原生 PF（无需 Clash）`。
+3. 点击“检测”。显示成功表示安装包内的原生 helper 存在且可执行；这一步不会申请管理员权限。
+4. 可选：启用“在游戏窗口右上角显示一键拔线按钮”。首次启用悬浮按钮时，按系统提示授予辅助功能权限。也可以不启用，直接使用菜单栏按钮。
+
+### 实战拔线
+
+1. 正常进入酒馆战棋并等待战斗开始。
+2. 确认已经切入战斗画面后，点击悬浮的“一键拔线”，或点击菜单栏 Skipper 图标 → “一键拔线”。不要在招募阶段提前点击。
+3. 本次 Skipper 启动后的第一次原生拔线会弹出 macOS 管理员授权，请输入管理员密码。授权启动的受限 helper 会复用到 Skipper 退出，因此同一次启动内后续拔线通常不再询问密码。
+4. 游戏应短暂显示“正在重新连接”，随后回到当前对局。一次操作尚未完成时的重复点击会被忽略，不需要连续点击。
+
+退出或重新启动 Skipper 后，下一次原生拔线需要重新授权。若 helper 意外退出，也可能再次弹出密码框。当前测试版不会安装永久常驻的 root 服务。
+
+## 教程二：Clash/Mihomo 模式
+
+1. 开启 Clash/Mihomo 的 TUN 模式，确保炉石流量由其核心接管。
+2. 在 Clash 配置中启用 external controller，并添加：
+
+   ```yaml
+   find-process-mode: always
+   ```
+
+3. 在 Skipper 设置中选择 `TCP/IP` 或 `UNIX套接字`。
+4. TCP/IP 模式填写 `external_controller` 和 `secret`；UNIX 模式选择控制器套接字文件。Skipper 会尝试自动推断常见配置，无法推断时再手动填写。
+5. 点击“检测”，成功后按上面的实战步骤使用“一键拔线”。Clash 模式不需要管理员密码。
+
+## 日志与问题反馈
+
+测试时请记下异常发生的准确时间（例如 `09:45`），然后从菜单栏 Skipper 图标选择“打开日志”。日志文件位于：
+
+```text
+~/Library/Application Support/z2z63/skipper/log.txt
+```
+
+反馈问题时请提供：
+
+- Skipper 版本、macOS 版本和 Mac 芯片；
+- 使用原生模式还是 Clash 模式；
+- 点击时间，以及当时处于招募、战斗还是观战；
+- 游戏表现（无反应、一直重连、游戏退出等）；
+- 对应时间前后约一分钟的日志。日志会轮转，不要等多次重启后再保存。
+
+常见情况：
+
+- **点击没有反应**：一次操作正在执行时重复点击会被忽略；打开日志查找 `duplicate click while busy`。
+- **原生模式提示关闭 TUN**：关闭 Clash/VPN 的 TUN 后重新进入对局再试。
+- **一直显示正在重新连接**：先等待游戏自身完成重连，不要连续拔线；保存日志和异常时间后再重启游戏。
+- **每次都要求密码**：确认没有退出/重启 Skipper，并检查是否同时运行了多个 `skipper.app`。同一进程内 helper 正常存活时只需首次授权。
+- **游戏直接退出**：立即保存 Skipper 日志和炉石日志，并注明退出时间；Skipper 不会主动结束游戏进程。
+
+## 界面截图
+
+<div style="display: flex; justify-content: space-around; flex-wrap: wrap">
+  <img src="docs/img.png" alt="Skipper 设置" width="420">
+  <img src="docs/img_1.png" alt="Clash 配置" width="420">
+  <img src="docs/img_2.png" alt="Skipper 使用示例" width="420">
+  <img src="docs/img_3.png" alt="菜单栏图标" width="160">
+  <img src="docs/img_4.png" alt="悬浮按钮" width="420">
 </div>
 
 ## 原理
@@ -53,7 +111,11 @@ macOS 原生后端通过炉石日志与 `libproc` 双重确认真实对局连接
 同时，这个思路也适用于 windows 端的炉石传说客户端。虽然 windows 端已有广泛使用的 HDT炉石团子
 插件，但需要管理员权限，而且由开源转为闭源，严重违反开源精神
 
-## 要求
+## 要求与限制
 
-1. 原生 PF 后端要求 macOS，并需要管理员授权
-2. Clash 后端要求兼容 Clash API 的核心能够接管炉石传说客户端流量
+1. 原生 PF 后端仅支持 macOS，需要管理员授权；当前发布包仅构建 Apple Silicon 版本。
+2. 原生 PF 与 Clash/VPN TUN 不能同时使用。
+3. Clash 后端要求兼容 Clash API 的核心能够接管炉石传说客户端流量。
+4. 当前原生版本仍为实战测试版。正式分发仍需 Developer ID 签名、公证及基于 `SMAppService` 的 helper。
+
+详细设计和安全边界见 [非 Clash 原生拔线方案](docs/native-disconnect-design.md)。
