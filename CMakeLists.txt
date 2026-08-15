@@ -16,7 +16,7 @@ if (NOT APP_VERSION)
 endif ()
 string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" BUNDLE_VERSION ${APP_VERSION})
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network)
 get_target_property(_qmake_executable Qt6::qmake IMPORTED_LOCATION)
 execute_process(
         COMMAND "${_qmake_executable}" -query QT_INSTALL_PLUGINS
@@ -43,6 +43,7 @@ target_sources(skipper PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/setting_dialog.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/skipper.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/float_button.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/updater.cpp
 )
 
 qt_add_resources(skipper "fonts"
@@ -63,6 +64,7 @@ target_sources(skipper PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include/skipper.h
         ${CMAKE_CURRENT_SOURCE_DIR}/include/float_button.h
         ${CMAKE_CURRENT_SOURCE_DIR}/include/window_listener.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/updater.h
 )
 target_include_directories(skipper PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -120,7 +122,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(yaml-cpp spdlog libcurl)
 
 
-target_link_libraries(skipper PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets yaml-cpp spdlog qcurl)
+target_link_libraries(skipper PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network yaml-cpp spdlog qcurl)
 target_link_libraries(qcurl PRIVATE Qt6::Core PUBLIC CURL::libcurl)
 
 if (APPLE)

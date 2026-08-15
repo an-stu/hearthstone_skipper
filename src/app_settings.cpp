@@ -73,6 +73,32 @@ void AppSettings::float_button_enabled_set(bool enabled) {
     _settings.sync();
 }
 
+bool AppSettings::auto_update_enabled() const {
+    QVariant val = _settings.value("auto_update_enabled");
+    if (!val.isValid()) {
+        return true; // 默认开启自动更新
+    }
+    return val.toBool();
+}
+
+void AppSettings::auto_update_enabled_set(bool enabled) {
+    _settings.setValue("auto_update_enabled", enabled);
+    _settings.sync();
+}
+
+QDateTime AppSettings::last_auto_update_check() const {
+    const QVariant value = _settings.value("last_auto_update_check_ms");
+    if (!value.isValid()) {
+        return {};
+    }
+    return QDateTime::fromMSecsSinceEpoch(value.toLongLong());
+}
+
+void AppSettings::last_auto_update_check_set(const QDateTime &value) {
+    _settings.setValue("last_auto_update_check_ms", value.toMSecsSinceEpoch());
+    _settings.sync();
+}
+
 AppSettings &AppSettings::instance() {
     static AppSettings app_settings;
     return app_settings;

@@ -132,6 +132,17 @@ SettingTab::SettingTab(QWidget *parent) : QWidget(parent), _config(App::skipper-
     });
     float_layout->addWidget(float_button_checkbox);
     float_layout->addWidget(float_hint);
+
+    auto_update_checkbox = new QCheckBox("自动更新（启动时检查并安装新版本）", this);
+    auto_update_checkbox->setChecked(AppSettings::instance().auto_update_enabled());
+    auto *auto_update_hint = new QLabel("更新完成后 Skipper 会自动重启；更新可能需要重新授予辅助功能权限", this);
+    auto_update_hint->setStyleSheet("color: gray; font-size: 12px;");
+    auto_update_hint->setWordWrap(true);
+    connect(auto_update_checkbox, &QCheckBox::toggled, this, [](bool checked) {
+        App::instance()->setAutoUpdateEnabled(checked);
+    });
+    float_layout->addWidget(auto_update_checkbox);
+    float_layout->addWidget(auto_update_hint);
     layout_outer->addWidget(float_button_group);
 
     setupVisibility();

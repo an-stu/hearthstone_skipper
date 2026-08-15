@@ -45,6 +45,7 @@ class SettingTab final : public QWidget {
     QPushButton *test_btn;
     QGroupBox *float_button_group;
     QCheckBox *float_button_checkbox;
+    QCheckBox *auto_update_checkbox;
     ClashConfig _config;
     QTimer *timer;
 };
