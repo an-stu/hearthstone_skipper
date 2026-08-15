@@ -18,8 +18,10 @@ class FloatButton : public QPushButton {
 
   private:
     void moveToWindow(const QRect &windowRect);
+    [[nodiscard]] bool isFullscreen(const QRect &windowRect) const;
 
   private:
     HearthStoneWindowListener *windowListener;
     std::shared_ptr<spdlog::logger> _logger;
+    bool _fullscreen = false;
 };

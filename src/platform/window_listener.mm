@@ -47,6 +47,15 @@ static NSString *bundleIdentifier = @"unity.Blizzard Entertainment.Hearthstone";
                    selector:@selector(appTerminated:)
                        name:NSWorkspaceDidTerminateApplicationNotification
                      object:nil];
+
+        // 处理 Skipper 启动时炉石已经在前台（例如已经全屏）的情况：
+        // 此时不会再有激活通知，需要主动触发一次检查。
+        NSRunningApplication *frontmost = [[NSWorkspace sharedWorkspace] frontmostApplication];
+        if ([frontmost.bundleIdentifier isEqual:bundleIdentifier]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self appGetFocused:nil];
+            });
+        }
     }
     return self;
 }
@@ -70,14 +79,25 @@ static void windowPositionUpdateCallback(AXObserverRef, AXUIElementRef, CFString
 
 - (void)appGetFocused:(NSNotification *)notification {
     NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
+    if (app == nil) {
+        app = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    }
     if (![app.bundleIdentifier isEqual:bundleIdentifier]) {
         return;
     }
+    requestAccessibilityPermission();
     if (self.windowObserver == nullptr) {
         SPDLOG_LOGGER_INFO(_logger, "Hearthstone get focus, try setup window listener");
         [self setupListener:app];
     }
     QRect rect = [self getWindowLocation];
+    if (rect.isNull() && !accessibilityPermissionGranted()) {
+        // 没有辅助功能权限时拿不到炉石窗口 frame，退回当前活动屏幕的 frame，
+        // 保证全屏时按钮仍然出现在右上角。
+        rect = [self fallbackWindowLocation];
+        SPDLOG_LOGGER_WARN(_logger, "AX permission missing, fallback to active screen frame={},{},{},{}", rect.x(),
+                           rect.y(), rect.width(), rect.height());
+    }
     if (!rect.isNull()) {
         emit self.listener->onAppGetFocus(rect);
     }
@@ -112,6 +132,25 @@ static void windowPositionUpdateCallback(AXObserverRef, AXUIElementRef, CFString
     emit self.listener->onAppTerminate();
 }
 
+- (QRect)fallbackWindowLocation {
+    NSArray<NSScreen *> *screens = [NSScreen screens];
+    if (screens.count == 0) {
+        return QRect();
+    }
+    NSScreen *primary = screens.firstObject;
+    NSScreen *target = [NSScreen mainScreen];
+    if (target == nil) {
+        target = primary;
+    }
+    // Cocoa 屏幕坐标原点在左下角，转换为 Qt 的左上角全局坐标
+    const NSRect primaryFrame = primary.frame;
+    const NSRect targetFrame = target.frame;
+    const int x = qRound(targetFrame.origin.x - primaryFrame.origin.x);
+    const int y = qRound(primaryFrame.origin.y + primaryFrame.size.height -
+                         (targetFrame.origin.y + targetFrame.size.height));
+    return QRect(x, y, qRound(targetFrame.size.width), qRound(targetFrame.size.height));
+}
+
 - (QRect)getWindowLocation {
     if (self.hearthstoneWindowRef == nullptr) {
         return QRect();
@@ -120,11 +159,15 @@ static void windowPositionUpdateCallback(AXObserverRef, AXUIElementRef, CFString
     CFTypeRef positionValue = nullptr;
     CFTypeRef sizeValue = nullptr;
 
-    if (AXUIElementCopyAttributeValue(self.hearthstoneWindowRef, kAXPositionAttribute, &positionValue) !=
-        kAXErrorSuccess) {
+    const AXError positionError =
+        AXUIElementCopyAttributeValue(self.hearthstoneWindowRef, kAXPositionAttribute, &positionValue);
+    if (positionError != kAXErrorSuccess) {
+        SPDLOG_LOGGER_WARN(_logger, "AX position request failed error={}", (long)positionError);
         return QRect();
     }
-    if (AXUIElementCopyAttributeValue(self.hearthstoneWindowRef, kAXSizeAttribute, &sizeValue) != kAXErrorSuccess) {
+    const AXError sizeError = AXUIElementCopyAttributeValue(self.hearthstoneWindowRef, kAXSizeAttribute, &sizeValue);
+    if (sizeError != kAXErrorSuccess) {
+        SPDLOG_LOGGER_WARN(_logger, "AX size request failed error={}", (long)sizeError);
         CFRelease(positionValue);
         return QRect();
     }
@@ -165,6 +208,17 @@ static void windowPositionUpdateCallback(AXObserverRef, AXUIElementRef, CFString
         emit self.listener->onAppLaunch(rect);
         return;
     }
+    if (!accessibilityPermissionGranted()) {
+        // 缺少辅助功能权限时重试也拿不到窗口，直接使用活动屏幕 frame 兜底。
+        rect = [self fallbackWindowLocation];
+        SPDLOG_LOGGER_WARN(_logger, "AX permission missing, stop retry and fallback to screen frame={},{},{},{}",
+                           rect.x(), rect.y(), rect.width(), rect.height());
+        self.retryCount = 30;
+        if (!rect.isNull()) {
+            emit self.listener->onAppLaunch(rect);
+        }
+        return;
+    }
 
     if (self.retryCount < 30) {
         self.retryCount++;
@@ -183,8 +237,13 @@ static void windowPositionUpdateCallback(AXObserverRef, AXUIElementRef, CFString
     self.pid = app.processIdentifier;
     AXUIElementRef appRef = AXUIElementCreateApplication(self.pid);
     CFArrayRef windows = nullptr;
-    AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute, (CFTypeRef *)&windows);
+    const AXError windowsError = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute, (CFTypeRef *)&windows);
     CFRelease(appRef);
+    if (windowsError != kAXErrorSuccess) {
+        SPDLOG_LOGGER_WARN(_logger, "AX windows request failed error={} trusted={}", (long)windowsError,
+                           accessibilityPermissionGranted());
+        return;
+    }
     if (windows == nullptr) {
         SPDLOG_LOGGER_WARN(_logger, "Hearthstone has no window, will retry");
         return;
@@ -224,6 +283,23 @@ static void windowPositionUpdateCallback(AXObserverRef, AXUIElementRef, CFString
 }
 
 @end
+
+bool accessibilityPermissionGranted() {
+    return AXIsProcessTrusted();
+}
+
+void requestAccessibilityPermission() {
+    const auto logger = spdlog::get("skipper");
+    const bool trusted = AXIsProcessTrusted();
+    SPDLOG_LOGGER_INFO(logger, "accessibility_permission trusted={}", trusted);
+    if (trusted) {
+        return;
+    }
+    SPDLOG_LOGGER_WARN(logger, "accessibility_permission missing, showing system prompt");
+    NSDictionary *options = @{(__bridge NSString *)kAXTrustedCheckOptionPrompt : @YES};
+    const bool trustedAfterPrompt = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+    SPDLOG_LOGGER_INFO(logger, "accessibility_permission after_prompt={}", trustedAfterPrompt);
+}
 
 void setWindowStayOnTop(QWidget *widget) {
     auto *view = (__bridge NSView *)(void *)widget->winId();

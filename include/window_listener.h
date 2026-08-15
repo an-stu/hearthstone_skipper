@@ -7,6 +7,8 @@
 class QWidget;
 
 void setWindowStayOnTop(QWidget* widget);
+[[nodiscard]] bool accessibilityPermissionGranted();
+void requestAccessibilityPermission();
 
 class HearthStoneWindowListener: public QObject{
     Q_OBJECT

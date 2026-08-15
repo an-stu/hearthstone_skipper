@@ -124,7 +124,7 @@ SettingTab::SettingTab(QWidget *parent) : QWidget(parent), _config(App::skipper-
     auto *float_layout = new QVBoxLayout(float_button_group);
     float_button_checkbox = new QCheckBox("在游戏窗口右上角显示一键拔线按钮", this);
     float_button_checkbox->setChecked(AppSettings::instance().float_button_enabled());
-    auto *float_hint = new QLabel("需要授予辅助功能权限，关闭后仍可通过系统菜单栏拔线", this);
+    auto *float_hint = new QLabel("全屏模式下显示为右上角透明小方框按钮；需要授予辅助功能权限，关闭后仍可通过系统菜单栏拔线", this);
     float_hint->setStyleSheet("color: gray; font-size: 12px;");
     float_hint->setWordWrap(true);
     connect(float_button_checkbox, &QCheckBox::toggled, this, [](bool checked) {
